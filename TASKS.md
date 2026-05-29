@@ -1,6 +1,6 @@
 # TASKS.md — Whisper VTT
 
-## Phase 1: Foundation
+## Phase 1: Foundation ✅
 
 - [x] Create project skeleton
   Done when: `pyproject.toml`, `requirements.txt`, `src/__init__.py`, `src/__main__.py` (stub), `scripts/`, `models/`, and `tests/` directories exist with correct structure.
@@ -19,3 +19,50 @@
 
 - [x] Unit tests for Phase 1
   Done when: `pytest tests/ -v` passes. Covers config round-trip serialization, invalid config graceful defaults, PathResolver source vs bundled paths.
+
+## Phase 2: Recording Pipeline ✅
+
+- [x] VAD Engine (`src/vad_engine.py`)
+  Done when: RMS energy calculation with dB conversion, consecutive silence tracking, configurable threshold, reset between sessions. Tests cover all edge cases.
+
+- [x] Audio Capture (`src/audio_capture.py`)
+  Done when: sounddevice InputStream at 16kHz mono, chunk streaming via callback, buffer accumulation, graceful error handling for unavailable/denied mic.
+
+- [x] Transcription Engine (`src/transcription_engine.py`)
+  Done when: openai-whisper model load (file or name-based), CPU-only inference, float32 conversion, error handling for missing model.
+
+- [x] Unit tests for Phase 2
+  Done when: 39 new tests across VAD, audio capture, and transcription engine. All pass.
+
+## Phase 3: User Interface ✅
+
+- [x] Hotkey Listener (`src/hotkey_listener.py`)
+  Done when: Windows low-level keyboard hook via ctypes, dedicated message pump thread, modifier tracking, push-to-talk and toggle mode support, key name to VK mapping.
+
+- [x] Output Handler (`src/output_handler.py`)
+  Done when: Clipboard operations via win32clipboard with clip.exe fallback, auto-paste via SendInput with silent fallback, error resilience.
+
+- [x] System Tray (`src/system_tray.py`)
+  Done when: pystray icon with Pillow-generated colored circles (green/red/orange/gray), status updates, notifications, exit menu.
+
+- [x] Unit tests for Phase 3
+  Done when: 38 new tests across hotkey listener, output handler, and system tray. All pass.
+
+## Phase 4: Integration ✅
+
+- [x] App Controller (`src/app_controller.py`)
+  Done when: Full state machine (Idle→Recording→Transcribing→Delivering→Idle), ThreadPoolExecutor for transcription, VAD auto-stop, error handling at every transition, push-to-talk and toggle modes.
+
+- [x] Entry Point (`src/__main__.py`)
+  Done when: Wires all components, loads config, preloads whisper model, starts tray and hotkey listener, handles graceful shutdown.
+
+- [x] Integration tests for Phase 4
+  Done when: 18 tests covering state transitions, error paths, VAD auto-stop, short recording discard, both recording modes.
+
+## Phase 5: Build & Distribution ✅
+
+- [x] Model download script (`scripts/download_model.py`)
+  Done when: Downloads whisper model via openai-whisper, copies cached .pt file to models/, reports size.
+
+- [x] PyInstaller build script (`scripts/build.py`)
+  Done when: Runs PyInstaller --onedir, bundles model, copies config, creates distributable zip.

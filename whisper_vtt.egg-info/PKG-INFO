@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: whisper-vtt
+Version: 0.1.0
+Summary: Portable offline dictation utility using local Whisper inference
+Requires-Python: >=3.11
+Requires-Dist: sounddevice>=0.4.6
+Requires-Dist: openai-whisper
+Requires-Dist: pystray>=0.19.5
+Requires-Dist: pillow>=10.0.0
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: pywin32>=306
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4.0; extra == "dev"
+Requires-Dist: hypothesis>=6.82.0; extra == "dev"
+Requires-Dist: pytest-mock>=3.11.0; extra == "dev"
+Requires-Dist: pyinstaller>=5.13.0; extra == "dev"

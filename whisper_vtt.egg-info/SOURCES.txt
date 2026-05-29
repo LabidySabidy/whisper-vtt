@@ -1,0 +1,14 @@
+pyproject.toml
+src/__init__.py
+src/__main__.py
+src/config_manager.py
+src/models.py
+src/paths.py
+tests/test_config_manager.py
+tests/test_models.py
+tests/test_paths.py
+whisper_vtt.egg-info/PKG-INFO
+whisper_vtt.egg-info/SOURCES.txt
+whisper_vtt.egg-info/dependency_links.txt
+whisper_vtt.egg-info/requires.txt
+whisper_vtt.egg-info/top_level.txt

@@ -1,0 +1,16 @@
+[hotkey]
+modifiers = []
+key = "`"
+
+[recording]
+mode = "toggle"
+
+[output]
+mode = "auto_paste"
+
+[vad]
+silence_threshold_ms = 5000
+volume_threshold_db = -15.0
+
+[model]
+path = "models/tiny.en.pt"

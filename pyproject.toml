@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whisper-vtt"
+version = "0.1.0"
+description = "Portable offline dictation utility using local Whisper inference"
+requires-python = ">=3.11"
+dependencies = [
+    "sounddevice>=0.4.6",
+    "openai-whisper",
+    "pystray>=0.19.5",
+    "pillow>=10.0.0",
+    "numpy>=1.24.0",
+    "pywin32>=306",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "hypothesis>=6.82.0",
+    "pytest-mock>=3.11.0",
+    "pyinstaller>=5.13.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

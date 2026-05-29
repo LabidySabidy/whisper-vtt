@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+dictation.log
+
+# Whisper models (large binary files)
+models/*.pt
+
+# PyInstaller
+*.spec

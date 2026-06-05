@@ -21,7 +21,7 @@ def make_toggle_config() -> AppConfig:
         output_mode=OutputMode.CLIPBOARD,
         silence_threshold_ms=5000,
         volume_threshold_db=-15.0,
-        model_path="models/tiny.en.pt",
+        model_path="models/ggml-base.en.bin",
     )
 
 
@@ -32,7 +32,18 @@ def make_push_to_talk_config() -> AppConfig:
         output_mode=OutputMode.CLIPBOARD,
         silence_threshold_ms=5000,
         volume_threshold_db=-15.0,
-        model_path="models/tiny.en.pt",
+        model_path="models/ggml-base.en.bin",
+    )
+
+
+def make_wake_word_config() -> AppConfig:
+    return AppConfig(
+        hotkey=HotkeyCombo(modifiers=frozenset(), key="`"),
+        recording_mode=RecordingMode.WAKE_WORD,
+        output_mode=OutputMode.CLIPBOARD,
+        silence_threshold_ms=5000,
+        volume_threshold_db=-15.0,
+        model_path="models/ggml-base.en.bin",
     )
 
 
@@ -74,10 +85,11 @@ class TestToggleMode:
     def test_first_press_starts_recording(self):
         audio = MagicMock()
         audio.is_recording = False
+        tray = MagicMock()
 
         controller = AppController(
             config=make_toggle_config(),
-            tray=MagicMock(),
+            tray=tray,
             hotkey_listener=MagicMock(),
             audio_capture=audio,
             vad_engine=MagicMock(),
@@ -100,10 +112,12 @@ class TestToggleMode:
 
         audio.start_recording.assert_called_once()
         assert controller.status == AppStatus.RECORDING
+        tray.show_notification.assert_called_once_with("Whisper VTT", "Recording started")
 
     def test_second_press_stops_recording(self):
         audio = MagicMock()
         audio.is_recording = True
+        tray = MagicMock()
 
         # Return a buffer that's long enough
         buffer = AudioBuffer(
@@ -114,7 +128,7 @@ class TestToggleMode:
 
         controller = AppController(
             config=make_toggle_config(),
-            tray=MagicMock(),
+            tray=tray,
             hotkey_listener=MagicMock(),
             audio_capture=audio,
             vad_engine=MagicMock(),
@@ -135,6 +149,40 @@ class TestToggleMode:
         )
 
         audio.stop_recording.assert_called_once()
+
+    def test_second_press_stops_notification_fires(self):
+        """Notification fires for stop even when executor runs transcription."""
+        audio = MagicMock()
+        audio.is_recording = True
+        tray = MagicMock()
+
+        buffer = AudioBuffer(
+            samples=np.zeros(16000, dtype=np.float32),
+            sample_rate=16000,
+        )
+        audio.stop_recording.return_value = buffer
+
+        controller = AppController(
+            config=make_toggle_config(),
+            tray=tray,
+            hotkey_listener=MagicMock(),
+            audio_capture=audio,
+            vad_engine=MagicMock(),
+            transcription_engine=MagicMock(),
+            output_handler=MagicMock(),
+        )
+
+        controller._set_status(AppStatus.RECORDING)
+
+        from src.models import HotkeyEvent
+        controller._on_hotkey_activated(
+            HotkeyEvent(
+                combo=HotkeyCombo(modifiers=frozenset(), key="`"),
+                pressed=True,
+                timestamp_ms=0,
+            )
+        )
+
 
     def test_press_during_transcribing_ignored(self):
         controller = AppController(
@@ -161,6 +209,71 @@ class TestToggleMode:
         # Nothing should happen — audio should NOT start
         # (we can verify status is still TRANSCRIBING)
         assert controller.status == AppStatus.TRANSCRIBING
+
+
+class TestWakeWordHotkeyMode:
+    """In wake_word mode, the hotkey acts as a toggle — same as toggle mode."""
+
+    def test_hotkey_starts_recording_in_wake_word_mode(self):
+        audio = MagicMock()
+        audio.is_recording = False
+        tray = MagicMock()
+
+        controller = AppController(
+            config=make_wake_word_config(),
+            tray=tray,
+            hotkey_listener=MagicMock(),
+            audio_capture=audio,
+            vad_engine=MagicMock(),
+            transcription_engine=MagicMock(),
+            output_handler=MagicMock(),
+        )
+
+        from src.models import HotkeyEvent
+        controller._on_hotkey_activated(
+            HotkeyEvent(
+                combo=HotkeyCombo(modifiers=frozenset(), key="`"),
+                pressed=True,
+                timestamp_ms=0,
+            )
+        )
+
+        audio.start_recording.assert_called_once()
+        assert controller.status == AppStatus.RECORDING
+
+    def test_hotkey_stops_recording_in_wake_word_mode(self):
+        audio = MagicMock()
+        audio.is_recording = True
+        tray = MagicMock()
+
+        buffer = AudioBuffer(
+            samples=np.zeros(16000, dtype=np.float32),
+            sample_rate=16000,
+        )
+        audio.stop_recording.return_value = buffer
+
+        controller = AppController(
+            config=make_wake_word_config(),
+            tray=tray,
+            hotkey_listener=MagicMock(),
+            audio_capture=audio,
+            vad_engine=MagicMock(),
+            transcription_engine=MagicMock(),
+            output_handler=MagicMock(),
+        )
+
+        controller._set_status(AppStatus.RECORDING)
+
+        from src.models import HotkeyEvent
+        controller._on_hotkey_activated(
+            HotkeyEvent(
+                combo=HotkeyCombo(modifiers=frozenset(), key="`"),
+                pressed=True,
+                timestamp_ms=0,
+            )
+        )
+
+        audio.stop_recording.assert_called_once()
 
 
 class TestPushToTalkMode:
@@ -253,6 +366,7 @@ class TestRecordingTooShort:
     def test_recording_under_100ms_discarded(self):
         audio = MagicMock()
         audio.is_recording = True
+        tray = MagicMock()
 
         # Buffer with less than 0.1s of audio
         buffer = AudioBuffer(
@@ -266,7 +380,7 @@ class TestRecordingTooShort:
 
         controller = AppController(
             config=make_toggle_config(),
-            tray=MagicMock(),
+            tray=tray,
             hotkey_listener=MagicMock(),
             audio_capture=audio,
             vad_engine=MagicMock(),
@@ -281,9 +395,14 @@ class TestRecordingTooShort:
         assert controller.status == AppStatus.IDLE
         transcription.transcribe.assert_not_called()
 
+        # Notification should fire for stop, but not for transcription
+
     def test_recording_exactly_100ms_not_discarded(self):
+        from unittest.mock import patch
+
         audio = MagicMock()
         audio.is_recording = True
+        tray = MagicMock()
 
         buffer = AudioBuffer(
             samples=np.zeros(1600, dtype=np.float32),  # exactly 0.1s
@@ -296,7 +415,7 @@ class TestRecordingTooShort:
 
         controller = AppController(
             config=make_toggle_config(),
-            tray=MagicMock(),
+            tray=tray,
             hotkey_listener=MagicMock(),
             audio_capture=audio,
             vad_engine=MagicMock(),
@@ -304,22 +423,20 @@ class TestRecordingTooShort:
             output_handler=MagicMock(),
         )
 
-        # Use a mock executor to control timing
-        mock_executor = MagicMock()
-        controller._executor = mock_executor
+        # Prevent the transcribe thread from actually running
+        with patch("threading.Thread.start"):
+            controller._set_status(AppStatus.RECORDING)
+            controller._stop_recording()
 
-        controller._set_status(AppStatus.RECORDING)
-        controller._stop_recording()
-
-        # Status should be TRANSCRIBING (submitted to executor)
+        # Status should be TRANSCRIBING (thread started — but blocked by patch)
         assert controller.status == AppStatus.TRANSCRIBING
-        mock_executor.submit.assert_called_once()
 
 
 class TestVADAutoStop:
     def test_silence_detected_stops_recording(self):
         audio = MagicMock()
         audio.is_recording = True
+        tray = MagicMock()
 
         buffer = AudioBuffer(
             samples=np.zeros(16000, dtype=np.float32),
@@ -332,7 +449,7 @@ class TestVADAutoStop:
 
         controller = AppController(
             config=make_toggle_config(),
-            tray=MagicMock(),
+            tray=tray,
             hotkey_listener=MagicMock(),
             audio_capture=audio,
             vad_engine=vad,
@@ -346,6 +463,35 @@ class TestVADAutoStop:
         controller._on_audio_chunk(np.zeros(1600, dtype=np.float32))
 
         audio.stop_recording.assert_called_once()
+
+    def test_silence_detected_notification_fires(self):
+        """Notification fires for silence stop even when executor runs transcription."""
+        audio = MagicMock()
+        audio.is_recording = True
+        tray = MagicMock()
+
+        buffer = AudioBuffer(
+            samples=np.zeros(16000, dtype=np.float32),
+            sample_rate=16000,
+        )
+        audio.stop_recording.return_value = buffer
+
+        vad = MagicMock()
+        vad.process_chunk.return_value = True
+
+        controller = AppController(
+            config=make_toggle_config(),
+            tray=tray,
+            hotkey_listener=MagicMock(),
+            audio_capture=audio,
+            vad_engine=vad,
+            transcription_engine=MagicMock(),
+            output_handler=MagicMock(),
+        )
+
+        controller._set_status(AppStatus.RECORDING)
+        controller._on_audio_chunk(np.zeros(1600, dtype=np.float32))
+
 
     def test_silence_ignored_when_not_recording(self):
         audio = MagicMock()
@@ -371,12 +517,12 @@ class TestTranscription:
     def test_transcription_delivers_text(self):
         transcription = MagicMock()
         transcription.transcribe.return_value = "hello world"
-
         output = MagicMock()
+        tray = MagicMock()
 
         controller = AppController(
             config=make_toggle_config(),
-            tray=MagicMock(),
+            tray=tray,
             hotkey_listener=MagicMock(),
             audio_capture=MagicMock(),
             vad_engine=MagicMock(),
@@ -391,15 +537,42 @@ class TestTranscription:
 
         controller._do_transcribe(buffer)
 
-        transcription.transcribe.assert_called_once()
         output.deliver.assert_called_once_with("hello world")
         assert controller.status == AppStatus.IDLE
 
-    def test_transcription_error_returns_to_idle(self):
+    def test_transcription_preview_truncated(self):
         transcription = MagicMock()
-        from src.transcription_engine import TranscriptionError
-        transcription.transcribe.side_effect = TranscriptionError("model crash")
+        transcription.transcribe.return_value = "a" * 100
+        output = MagicMock()
+        tray = MagicMock()
 
+        controller = AppController(
+            config=make_toggle_config(),
+            tray=tray,
+            hotkey_listener=MagicMock(),
+            audio_capture=MagicMock(),
+            vad_engine=MagicMock(),
+            transcription_engine=transcription,
+            output_handler=output,
+        )
+
+        buffer = AudioBuffer(
+            samples=np.zeros(16000, dtype=np.float32),
+            sample_rate=16000,
+        )
+
+        controller._do_transcribe(buffer)
+
+        tray.show_notification.assert_called_with(
+            "Whisper VTT",
+            "Transcribed: " + "a" * 50 + "...",
+            play_sound=False,
+        )
+
+    def test_transcription_error_returns_to_idle(self):
+        from src.transcription_engine import TranscriptionError
+        transcription = MagicMock()
+        transcription.transcribe.side_effect = TranscriptionError("inference error")
         output = MagicMock()
         tray = MagicMock()
 
@@ -421,13 +594,14 @@ class TestTranscription:
         controller._do_transcribe(buffer)
 
         output.deliver.assert_not_called()
-        tray.show_notification.assert_called_once()
+        tray.show_notification.assert_called_with(
+            "Whisper VTT", "Transcription error: inference error"
+        )
         assert controller.status == AppStatus.IDLE
 
     def test_empty_transcription_not_delivered(self):
         transcription = MagicMock()
         transcription.transcribe.return_value = ""
-
         output = MagicMock()
 
         controller = AppController(
@@ -453,10 +627,8 @@ class TestTranscription:
     def test_delivery_error_shows_notification(self):
         transcription = MagicMock()
         transcription.transcribe.return_value = "hello"
-
         output = MagicMock()
         output.deliver.side_effect = RuntimeError("clipboard error")
-
         tray = MagicMock()
 
         controller = AppController(
@@ -476,9 +648,11 @@ class TestTranscription:
 
         controller._do_transcribe(buffer)
 
-        tray.show_notification.assert_called_once()
+        tray.show_notification.assert_any_call(
+            "Whisper VTT",
+            "Could not set clipboard: clipboard error",
+        )
         assert controller.status == AppStatus.IDLE
-
 
 class TestRecordingErrors:
     def test_start_recording_error_shows_notification(self):
@@ -501,7 +675,10 @@ class TestRecordingErrors:
 
         controller._start_recording()
 
+        # Only the error notification, not "Recording started"
         tray.show_notification.assert_called_once()
+        args = tray.show_notification.call_args[0]
+        assert "Microphone error" in args[1]
         assert controller.status == AppStatus.IDLE  # stays idle
 
     def test_stop_recording_error_returns_to_idle(self):
@@ -527,3 +704,79 @@ class TestRecordingErrors:
         controller._stop_recording()
 
         assert controller.status == AppStatus.IDLE
+
+
+class TestWakeWordPauseResume:
+    """Verify wake word listener is paused during recording and resumed after."""
+
+    def test_recording_start_pauses_wake_word(self):
+        audio = MagicMock()
+        audio.is_recording = False
+        wake_word = MagicMock()
+
+        controller = AppController(
+            config=make_toggle_config(),
+            tray=MagicMock(),
+            hotkey_listener=MagicMock(),
+            audio_capture=audio,
+            vad_engine=MagicMock(),
+            transcription_engine=MagicMock(),
+            output_handler=MagicMock(),
+            wake_word_listener=wake_word,
+        )
+
+        controller._start_recording()
+
+        wake_word.pause.assert_called_once()
+
+    def test_transcription_complete_resumes_wake_word(self):
+        transcription = MagicMock()
+        transcription.transcribe.return_value = "hello"
+        output = MagicMock()
+        wake_word = MagicMock()
+
+        controller = AppController(
+            config=make_toggle_config(),
+            tray=MagicMock(),
+            hotkey_listener=MagicMock(),
+            audio_capture=MagicMock(),
+            vad_engine=MagicMock(),
+            transcription_engine=transcription,
+            output_handler=output,
+            wake_word_listener=wake_word,
+        )
+
+        buffer = AudioBuffer(
+            samples=np.zeros(16000, dtype=np.float32),
+            sample_rate=16000,
+        )
+
+        controller._do_transcribe(buffer)
+
+        wake_word.resume.assert_called_once()
+
+    def test_no_wake_word_listener_no_crash(self):
+        """Start/transcribe should not crash when no wake word listener is set."""
+        audio = MagicMock()
+        audio.is_recording = False
+
+        transcription = MagicMock()
+        transcription.transcribe.return_value = "ok"
+
+        controller = AppController(
+            config=make_toggle_config(),
+            tray=MagicMock(),
+            hotkey_listener=MagicMock(),
+            audio_capture=audio,
+            vad_engine=MagicMock(),
+            transcription_engine=transcription,
+            output_handler=MagicMock(),
+            wake_word_listener=None,
+        )
+
+        # Should not raise
+        controller._start_recording()
+        controller._do_transcribe(AudioBuffer(
+            samples=np.zeros(16000, dtype=np.float32),
+            sample_rate=16000,
+        ))

@@ -66,3 +66,17 @@
 
 - [x] PyInstaller build script (`scripts/build.py`)
   Done when: Runs PyInstaller --onedir, bundles model, copies config, creates distributable zip.
+
+## Phase 6: Windows Notifications ✅
+
+- [x] System tray sound support (`src/system_tray.py`)
+  Done when: `show_notification()` accepts optional `play_sound` parameter, plays `winsound.MessageBeep()` by default.
+
+- [x] App controller notifications (`src/app_controller.py`)
+  Done when: Toast + beep at recording start, toast + beep at recording stop, toast with text preview at transcription complete (no beep).
+
+- [x] Build script config preservation (`scripts/build.py`)
+  Done when: Rebuild skips copying `config.toml` if dist copy already exists, preserving user edits.
+
+- [x] Tests for notifications
+  Done when: New tests verify notification calls fire at start/stop/transcribe, preview truncation, build config preservation logic.

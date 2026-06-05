@@ -11,6 +11,7 @@ import numpy as np
 class RecordingMode(Enum):
     PUSH_TO_TALK = "push_to_talk"
     TOGGLE = "toggle"
+    WAKE_WORD = "wake_word"
 
 
 class OutputMode(Enum):
@@ -39,6 +40,8 @@ class AppConfig:
     silence_threshold_ms: int
     volume_threshold_db: float
     model_path: Path
+    wake_word: str = "alexa"
+    wake_word_threshold: float = 1e-30
 
 
 @dataclass(frozen=True)

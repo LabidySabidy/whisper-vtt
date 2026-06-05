@@ -14,7 +14,7 @@ class VADEngine:
     def __init__(
         self,
         silence_threshold_ms: int = 5000,
-        volume_threshold_db: float = -15.0,
+        volume_threshold_db: float = -45.0,
         chunk_duration_ms: float = 100.0,
     ):
         self.silence_threshold_ms = silence_threshold_ms
@@ -23,11 +23,13 @@ class VADEngine:
 
         self._consecutive_silent_ms: float = 0.0
         self._silence_detected: bool = False
+        self._peak_db: float = float("-inf")  # track loudest chunk for diagnostics
 
     def reset(self) -> None:
         """Reset state for a new recording session."""
         self._consecutive_silent_ms = 0.0
         self._silence_detected = False
+        self._peak_db = float("-inf")
 
     def process_chunk(self, samples: np.ndarray) -> bool:
         """Process an audio chunk. Returns True if silence threshold reached.
@@ -39,6 +41,10 @@ class VADEngine:
             True if silence has been detected (consecutive silence >= threshold).
         """
         db_level = self._compute_db(samples)
+
+        # Track peak for diagnostics
+        if db_level > self._peak_db:
+            self._peak_db = db_level
 
         if db_level <= self.volume_threshold_db:
             self._consecutive_silent_ms += self.chunk_duration_ms
@@ -60,6 +66,11 @@ class VADEngine:
     def current_silence_ms(self) -> float:
         """Current consecutive silent duration in milliseconds."""
         return self._consecutive_silent_ms
+
+    @property
+    def peak_db(self) -> float:
+        """Loudest chunk seen since last reset (dBFS). For diagnostics."""
+        return self._peak_db
 
     @staticmethod
     def _compute_db(samples: np.ndarray) -> float:

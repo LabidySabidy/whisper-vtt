@@ -14,14 +14,16 @@ logger = logging.getLogger(__name__)
 DEFAULT_HOTKEY_MODIFIERS: frozenset[str] = frozenset()
 DEFAULT_HOTKEY_KEY = "`"
 DEFAULT_RECORDING_MODE = RecordingMode.TOGGLE
-DEFAULT_OUTPUT_MODE = OutputMode.AUTO_PASTE
-DEFAULT_SILENCE_THRESHOLD_MS = 5000
-DEFAULT_VOLUME_THRESHOLD_DB = -15.0
-DEFAULT_MODEL_PATH = "models/tiny.en.pt"
+DEFAULT_OUTPUT_MODE = OutputMode.CLIPBOARD
+DEFAULT_SILENCE_THRESHOLD_MS = 3000
+DEFAULT_VOLUME_THRESHOLD_DB = -50.0
+DEFAULT_MODEL_PATH = "models/ggml-base.en.bin"
+DEFAULT_WAKE_WORD = "jarvis"
+DEFAULT_WAKE_WORD_THRESHOLD = 1e-20
 
 # Valid values
 VALID_MODIFIERS = frozenset({"ctrl", "shift", "alt", "win"})
-VALID_RECORDING_MODES = frozenset({"toggle", "push_to_talk"})
+VALID_RECORDING_MODES = frozenset({"toggle", "push_to_talk", "wake_word"})
 VALID_OUTPUT_MODES = frozenset({"auto_paste", "clipboard"})
 
 
@@ -37,6 +39,8 @@ def _default_config() -> AppConfig:
         silence_threshold_ms=DEFAULT_SILENCE_THRESHOLD_MS,
         volume_threshold_db=DEFAULT_VOLUME_THRESHOLD_DB,
         model_path=Path(DEFAULT_MODEL_PATH),
+        wake_word=DEFAULT_WAKE_WORD,
+        wake_word_threshold=DEFAULT_WAKE_WORD_THRESHOLD,
     )
 
 
@@ -173,6 +177,25 @@ def load_config(config_path: Optional[Path] = None) -> AppConfig:
         recording_section.get("mode", DEFAULT_RECORDING_MODE.value)
     )
 
+    # Parse [wake_word] section
+    wake_word_section = data.get("wake_word", {})
+    if not isinstance(wake_word_section, dict):
+        wake_word_section = {}
+    wake_word = wake_word_section.get("phrase", DEFAULT_WAKE_WORD)
+    if not isinstance(wake_word, str) or not wake_word.strip():
+        logger.warning(
+            "Invalid wake word %r. Using default: '%s'.",
+            wake_word, DEFAULT_WAKE_WORD,
+        )
+        wake_word = DEFAULT_WAKE_WORD
+    wake_word_threshold = wake_word_section.get("threshold", DEFAULT_WAKE_WORD_THRESHOLD)
+    if not isinstance(wake_word_threshold, (int, float)) or wake_word_threshold <= 0:
+        logger.warning(
+            "Invalid wake word threshold %r. Using default: %.2f.",
+            wake_word_threshold, DEFAULT_WAKE_WORD_THRESHOLD,
+        )
+        wake_word_threshold = DEFAULT_WAKE_WORD_THRESHOLD
+
     # Parse [output] section
     output_section = data.get("output", {})
     if not isinstance(output_section, dict):
@@ -207,6 +230,8 @@ def load_config(config_path: Optional[Path] = None) -> AppConfig:
         silence_threshold_ms=silence_threshold_ms,
         volume_threshold_db=volume_threshold_db,
         model_path=model_path,
+        wake_word=wake_word,
+        wake_word_threshold=wake_word_threshold,
     )
 
 
@@ -227,6 +252,10 @@ mode = "{config.output_mode.value}"
 [vad]
 silence_threshold_ms = {config.silence_threshold_ms}
 volume_threshold_db = {config.volume_threshold_db}
+
+[wake_word]
+phrase = "{config.wake_word}"
+threshold = {config.wake_word_threshold:.0e}
 
 [model]
 path = "{config.model_path.as_posix()}"

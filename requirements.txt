@@ -1,5 +1,6 @@
 sounddevice>=0.4.6
-openai-whisper
+pywhispercpp>=1.5.0
+bottombar>=2.1
 pystray>=0.19.5
 pillow>=10.0.0
 numpy>=1.24.0

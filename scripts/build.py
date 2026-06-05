@@ -1,9 +1,4 @@
-"""PyInstaller build script for Whisper VTT.
-
-Packages the app as a portable --onedir folder containing
-the executable, all dependencies, the whisper model, and
-a default config.toml.
-"""
+"""PyInstaller build script for Whisper VTT."""
 
 import shutil
 import sys
@@ -11,31 +6,40 @@ from pathlib import Path
 
 
 def main():
-    # Ensure we're in the project root
     project_root = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(project_root))
 
     dist_dir = project_root / "dist" / "Whisper-VTT"
     models_dir = dist_dir / "models"
+    model_name = "ggml-base.en.bin"
 
     print("=" * 60)
-    print("Whisper VTT — PyInstaller Build")
+    print("Whisper VTT - PyInstaller Build")
+    print(f"  Engine: pywhispercpp (whisper.cpp GGML)")
+    print(f"  Model:  {model_name}")
     print("=" * 60)
 
-    # 1. Find the cached whisper model
-    model_name = "tiny.en"
-    cache_dir = Path.home() / ".cache" / "whisper"
-    cached_model = cache_dir / f"{model_name}.pt"
+    # Find or download the GGML model
+    print(f"\nLocating model '{model_name}'...")
+    import pywhispercpp.model
 
-    if cached_model.exists():
-        print(f"Found cached model: {cached_model}")
-        print(f"  Size: {cached_model.stat().st_size / (1024 * 1024):.1f} MB")
+    cache_dir = (
+        Path(pywhispercpp.model._MODELS_DIR)
+        if hasattr(pywhispercpp.model, "_MODELS_DIR")
+        else Path.home() / "AppData" / "Local" / "pywhispercpp" / "pywhispercpp" / "models"
+    )
+    cached_model = cache_dir / model_name
+    local_model = project_root / "models" / model_name
+
+    if local_model.exists():
+        print(f"  Found: {local_model} ({local_model.stat().st_size / (1024 * 1024):.1f} MB)")
+    elif cached_model.exists():
+        local_model.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cached_model, local_model)
+        print(f"  Copied from cache: {cached_model} -> {local_model}")
     else:
-        print(f"WARNING: Cached model not found at {cached_model}")
-        print("  Run 'python scripts/download_model.py' first to download the model.")
-        print("  Continuing without model — you'll need to place it manually.")
+        print(f"  WARNING: Model not found. Download with: python scripts/download_model.py")
 
-    # 2. Run PyInstaller
     print("\nRunning PyInstaller...")
     import PyInstaller.__main__
 
@@ -46,66 +50,74 @@ def main():
         "--distpath", str(project_root / "dist"),
         "--workpath", str(project_root / "build"),
         "--specpath", str(project_root),
-        # Hidden imports
+        "--noconfirm",
+        f"--icon={project_root / 'whisper_vtt.ico'}",
         "--hidden-import=sounddevice",
-        "--hidden-import=_sounddevice_data",  # sounddevice native libs
+        "--hidden-import=_sounddevice_data",
         "--hidden-import=numpy",
         "--hidden-import=pystray",
         "--hidden-import=PIL",
         "--hidden-import=win32clipboard",
         "--hidden-import=win32com",
         "--hidden-import=win32com.client",
-        "--hidden-import=whisper",
-        "--hidden-import=torch",
-        "--hidden-import=tiktoken",
-        # Exclude heavy packages we don't use
+        "--hidden-import=pywhispercpp",
+        "--hidden-import=pocketsphinx",
+        "--collect-all=pywhispercpp",
+        "--collect-all=pocketsphinx",
+        "--runtime-hook=scripts/runtime_hook.py",
         "--exclude-module=tkinter",
         "--exclude-module=matplotlib",
         "--exclude-module=scipy",
         "--exclude-module=pandas",
         "--exclude-module=pytest",
         "--exclude-module=hypothesis",
-        # Collect whisper's asset files (mel_filters.npz, etc.)
-        "--collect-all=whisper",
-        # Console app (not windowed — shows log output)
+        "--exclude-module=torch",
+        "--exclude-module=whisper",
+        "--exclude-module=faster_whisper",
+        "--exclude-module=ctranslate2",
+        "--exclude-module=tiktoken",
+        "--exclude-module=sympy",
+        "--exclude-module=numba",
+        "--exclude-module=llvmlite",
+        "--exclude-module=onnxruntime",
+        "--exclude-module=scikit-learn",
+        "--exclude-module=openwakeword",
         "--console",
     ]
 
     PyInstaller.__main__.run(pyinstaller_args)
 
-    # 3. Copy model file into dist
+    # Copy model
     models_dir.mkdir(parents=True, exist_ok=True)
-    if cached_model.exists():
-        dest = models_dir / f"{model_name}.pt"
-        print(f"\nCopying model: {cached_model} -> {dest}")
-        shutil.copy2(cached_model, dest)
-    else:
-        print(f"\nWARNING: No model copied. Place {model_name}.pt in {models_dir} manually.")
+    if local_model.exists():
+        dest = models_dir / model_name
+        shutil.copy2(local_model, dest)
+        print(f"Copied model: {dest}")
 
-    # 4. Copy default config
+    # Preserve existing config in dist, or copy from project root
     config_src = project_root / "config.toml"
+    config_dest = dist_dir / "config.toml"
     if config_src.exists():
-        config_dest = dist_dir / "config.toml"
-        print(f"Copying config: {config_src} -> {config_dest}")
-        shutil.copy2(config_src, config_dest)
+        if config_dest.exists():
+            print(f"Existing config preserved: {config_dest}")
+        else:
+            print(f"Copying config: {config_src} -> {config_dest}")
+            shutil.copy2(config_src, config_dest)
 
-    # 5. Create zip
     zip_path = project_root / "dist" / "Whisper-VTT.zip"
     print(f"\nCreating zip: {zip_path}")
+    if zip_path.exists():
+        zip_path.unlink()
     shutil.make_archive(
-        str(zip_path.with_suffix("")),
-        "zip",
-        str(dist_dir.parent),
-        dist_dir.name,
+        str(zip_path.with_suffix("")), "zip",
+        str(dist_dir.parent), dist_dir.name,
     )
 
-    # 6. Summary
     print("\n" + "=" * 60)
     print("Build complete!")
     print(f"  Folder: {dist_dir}")
     print(f"  Zip:    {zip_path}")
     print("=" * 60)
-    print("\nShare the zip file. Recipients unzip and double-click Whisper-VTT.exe.")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,6 @@ State flow:
 
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
 
 from src.audio_capture import AudioCapture, AudioCaptureError
 from src.config_manager import AppConfig, RecordingMode
@@ -39,6 +38,7 @@ class AppController:
         vad_engine: VADEngine,
         transcription_engine: TranscriptionEngine,
         output_handler: OutputHandler,
+        wake_word_listener: object = None,
     ):
         self._config = config
         self._tray = tray
@@ -47,17 +47,23 @@ class AppController:
         self._vad_engine = vad_engine
         self._transcription_engine = transcription_engine
         self._output_handler = output_handler
+        self._wake_word_listener = wake_word_listener
 
         self._status: AppStatus = AppStatus.IDLE
         self._lock = threading.Lock()
+        self._status_callback: object = None  # called on status changes
 
-        # Single worker for transcription (avoids concurrent GPU/CPU contention)
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="transcribe")
+        # Transcription queue — processed synchronously on main thread
+        self._pending_transcribe: list[AudioBuffer] = []
+        self._transcribe_cond = threading.Condition(self._lock)
 
         # Wire callbacks
         self._hotkey_listener.set_on_activated(self._on_hotkey_activated)
         self._hotkey_listener.set_on_released(self._on_hotkey_released)
         self._audio_capture.set_chunk_callback(self._on_audio_chunk)
+
+        if self._wake_word_listener:
+            self._wake_word_listener.set_on_detected(self._on_wake_word)
 
         # Push-to-talk tracking
         self._push_to_talk_active: bool = False
@@ -69,31 +75,68 @@ class AppController:
         return self._status
 
     def start(self) -> None:
-        """Start the application — begin listening for the hotkey."""
+        """Start the application — begin listening for hotkey or wake word."""
         logger.info("AppController starting.")
         self._set_status(AppStatus.IDLE)
         self._hotkey_listener.start()
         self._tray.start()
 
+        # In wake word mode, start continuous listening
+        if (
+            self._config.recording_mode == RecordingMode.WAKE_WORD
+            and self._wake_word_listener
+        ):
+            self._wake_word_listener.start()
+            logger.info(
+                "Wake word mode active: '%s' (threshold %.2f)",
+                self._config.wake_word,
+                self._config.wake_word_threshold,
+            )
+
     def stop(self) -> None:
         """Stop the application gracefully."""
         logger.info("AppController stopping.")
-        self._set_status(AppStatus.IDLE)
+        with self._lock:
+            self._status = AppStatus.IDLE
+            self._pending_transcribe.clear()
         self._hotkey_listener.stop()
+        if self._wake_word_listener:
+            self._wake_word_listener.stop()
         if self._audio_capture.is_recording:
             try:
                 self._audio_capture.stop_recording()
             except Exception:
                 pass
-        self._executor.shutdown(wait=False)
         self._tray.stop()
 
+    def process_queue(self, timeout: float = 1.0) -> None:
+        """Process pending transcription work on the main thread.
+
+        Called from the main event loop. Blocks up to `timeout` seconds
+        waiting for work, then processes one transcription if queued.
+        """
+        buffer = None
+        with self._lock:
+            if not self._pending_transcribe:
+                self._transcribe_cond.wait(timeout=timeout)
+            if self._pending_transcribe:
+                buffer = self._pending_transcribe.pop(0)
+
+        if buffer is not None:
+            self._do_transcribe(buffer)
+
     # ── Status management ──────────────────────────────────────────────
+
+    def set_status_callback(self, callback) -> None:
+        """Register a callback for status changes: callback(AppStatus, detail)."""
+        self._status_callback = callback
 
     def _set_status(self, status: AppStatus) -> None:
         with self._lock:
             self._status = status
         self._tray.set_status(status)
+        if self._status_callback:
+            self._status_callback(status)
 
     # ── Hotkey callbacks ───────────────────────────────────────────────
 
@@ -103,7 +146,7 @@ class AppController:
 
         if mode == RecordingMode.PUSH_TO_TALK:
             self._start_recording()
-        elif mode == RecordingMode.TOGGLE:
+        elif mode in (RecordingMode.TOGGLE, RecordingMode.WAKE_WORD):
             if self._status == AppStatus.IDLE:
                 self._start_recording()
             elif self._status == AppStatus.RECORDING:
@@ -115,6 +158,14 @@ class AppController:
         if self._config.recording_mode == RecordingMode.PUSH_TO_TALK:
             if self._status == AppStatus.RECORDING:
                 self._stop_recording()
+
+    # ── Wake word callback ─────────────────────────────────────────────
+
+    def _on_wake_word(self) -> None:
+        """Wake word detected — start recording."""
+        if self._status == AppStatus.IDLE:
+            logger.info("Wake word triggered — starting recording.")
+            self._start_recording()
 
     # ── Recording flow ─────────────────────────────────────────────────
 
@@ -134,6 +185,11 @@ class AppController:
 
         self._set_status(AppStatus.RECORDING)
         logger.info("Recording started.")
+        self._tray.show_notification("Whisper VTT", "Recording started")
+
+        # Pause wake word listener to prevent self-triggering during recording
+        if self._wake_word_listener:
+            self._wake_word_listener.pause()
 
     def _stop_recording(self) -> None:
         """Stop recording and begin transcription."""
@@ -154,7 +210,12 @@ class AppController:
             return
 
         self._set_status(AppStatus.TRANSCRIBING)
-        self._executor.submit(self._do_transcribe, buffer)
+        self._tray.show_notification(
+            "Whisper VTT", "Recording stopped — transcribing…"
+        )
+        with self._lock:
+            self._pending_transcribe.append(buffer)
+            self._transcribe_cond.notify()
 
     # ── Audio chunk callback (VAD) ─────────────────────────────────────
 
@@ -163,12 +224,23 @@ class AppController:
         silence_detected = self._vad_engine.process_chunk(chunk)
         if silence_detected and self._status == AppStatus.RECORDING:
             logger.info("Silence detected, auto-stopping recording.")
+            logger.debug(
+                "(peak %.1f dB, threshold %.1f dB)",
+                self._vad_engine.peak_db,
+                self._vad_engine.volume_threshold_db,
+            )
             self._stop_recording()
 
-    # ── Transcription (runs on worker thread) ──────────────────────────
+    # ── Transcription (runs synchronously on main thread) ─────────────
 
     def _do_transcribe(self, buffer: AudioBuffer) -> None:
         """Run transcription and deliver the result."""
+        logger.info(
+            "Transcribing %.1fs of audio (%d samples)...",
+            buffer.duration_seconds,
+            len(buffer.samples),
+        )
+
         try:
             text = self._transcription_engine.transcribe(
                 buffer.samples,
@@ -178,17 +250,33 @@ class AppController:
             logger.error("Transcription failed: %s", e)
             self._tray.show_notification("Whisper VTT", f"Transcription error: {e}")
             self._set_status(AppStatus.IDLE)
+            if self._wake_word_listener:
+                self._wake_word_listener.resume()
             return
 
         if text:
-            try:
-                self._output_handler.deliver(text)
-            except Exception as e:
-                logger.error("Failed to deliver text: %s", e)
-                self._tray.show_notification(
-                    "Whisper VTT",
-                    f"Could not set clipboard: {e}",
-                )
+            self._deliver_text(text)
 
         self._set_status(AppStatus.IDLE)
         logger.info("Dictation cycle complete.")
+        logger.info("─" * 50)
+
+        if self._wake_word_listener:
+            self._wake_word_listener.resume()
+
+    def _deliver_text(self, text: str) -> None:
+        preview = text if len(text) <= 50 else text[:50] + "..."
+        try:
+            self._output_handler.deliver(text)
+        except Exception as e:
+            logger.error("Failed to deliver text: %s", e)
+            self._tray.show_notification(
+                "Whisper VTT",
+                f"Could not set clipboard: {e}",
+            )
+        else:
+            self._tray.show_notification(
+                "Whisper VTT",
+                f"Transcribed: {preview}",
+                play_sound=False,
+            )

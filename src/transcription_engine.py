@@ -1,14 +1,15 @@
-"""Whisper speech-to-text transcription engine."""
+"""Whisper speech-to-text transcription engine using pywhispercpp.
+
+Uses pywhispercpp (Python bindings for whisper.cpp GGML models).
+Model is loaded once at startup and transcription runs on the main
+thread — no subprocess, no threading issues.
+"""
 
 import logging
-import warnings
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
-
-# Suppress whisper's verbose output
-warnings.filterwarnings("ignore", module="whisper")
 
 logger = logging.getLogger(__name__)
 
@@ -18,80 +19,57 @@ class TranscriptionError(Exception):
 
 
 class TranscriptionEngine:
-    """Local CPU-only speech-to-text using OpenAI's Whisper model.
+    """Local CPU-only speech-to-text using pywhispercpp (whisper.cpp)."""
 
-    The model is preloaded at construction to minimize first-transcription
-    latency. Supports two loading strategies:
-    1. If a model file exists at the configured path → load directly.
-    2. Otherwise → use whisper's built-in model name resolution
-       (downloads on first use, caches at ~/.cache/whisper/).
-    """
-
-    def __init__(self, model_path: Optional[Path] = None):
-        """
-        Args:
-            model_path: Path to a .pt model file, or None to use
-                        whisper's built-in name resolution.
-        """
+    def __init__(self, model_path: str = "models/ggml-base.en.bin"):
         self._model_path = model_path
         self._model: Optional[object] = None
         self._model_loaded = False
         self._load_error: Optional[str] = None
+        self._transcribe_count = 0
+        self._reload_interval = 10  # Reload model every N transcriptions
 
     @property
     def is_available(self) -> bool:
-        """Whether the model loaded successfully and transcription is possible."""
         return self._model_loaded
 
     @property
     def load_error(self) -> Optional[str]:
-        """Error message if model failed to load, or None."""
         return self._load_error
 
     def load_model(self) -> None:
-        """Preload the whisper model into memory.
-
-        Must be called before transcribe(). Safe to call multiple times —
-        subsequent calls are no-ops.
-        """
+        """Load the whisper.cpp model into memory."""
         if self._model_loaded:
             return
 
         try:
-            import whisper
+            from pywhispercpp.model import Model
         except ImportError:
             self._load_error = (
-                "openai-whisper package not installed. "
-                "Install with: pip install openai-whisper"
+                "pywhispercpp package not installed. "
+                "Install with: pip install pywhispercpp"
             )
             logger.error(self._load_error)
             return
 
         try:
-            if self._model_path and Path(self._model_path).exists():
-                logger.info("Loading model from file: %s", self._model_path)
-                self._model = whisper.load_model(
-                    str(self._model_path),
-                    device="cpu",
-                )
+            if Path(self._model_path).exists():
+                logger.debug("Loading model from file: %s", self._model_path)
+                self._model = Model(str(self._model_path))
             else:
-                # Use whisper's built-in resolution — will download
-                # tiny.en from the hub if not cached locally.
                 model_name = "tiny.en"
-                if self._model_path:
-                    # Try to extract model name from path (e.g., "models/base.en.pt" → "base.en")
-                    stem = Path(self._model_path).stem
-                    if stem:
-                        model_name = stem
-                logger.info("Loading model: %s", model_name)
-                self._model = whisper.load_model(
-                    model_name,
-                    device="cpu",
-                )
+                stem = Path(self._model_path).stem
+                if stem:
+                    model_name = stem.replace("ggml-", "")
+                logger.debug("Loading model: %s", model_name)
+                self._model = Model(model_name)
 
             self._model_loaded = True
             self._load_error = None
-            logger.info("Whisper model loaded successfully.")
+            logger.debug(
+                "Model loaded successfully: %s",
+                getattr(self._model, "model_path", self._model_path),
+            )
 
         except Exception as e:
             self._load_error = f"Failed to load whisper model: {e}"
@@ -102,40 +80,55 @@ class TranscriptionEngine:
     def transcribe(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
         """Transcribe audio samples to text.
 
-        Args:
-            audio: float32 numpy array at the given sample rate.
-            sample_rate: Audio sample rate in Hz (default 16kHz).
-
-        Returns:
-            Transcribed text with whitespace stripped.
-
-        Raises:
-            TranscriptionError: If model not loaded or inference fails.
+        Splits audio into max-60s chunks to stay within the model's
+        448-token context window (prevents buffer overflow crashes).
         """
         if not self._model_loaded or self._model is None:
-            raise TranscriptionError(
-                "Model not loaded. Call load_model() first."
-            )
+            raise TranscriptionError("Model not loaded. Call load_model() first.")
 
         if len(audio) == 0:
             return ""
 
-        # Ensure float32
         if audio.dtype != np.float32:
             audio = audio.astype(np.float32)
 
-        try:
-            result = self._model.transcribe(
-                audio,
-                language="en",
-                fp16=False,  # CPU-only
-                verbose=False,
+        # Periodically reload model to prevent whisper.cpp memory leak
+        # over many transcription calls (crashes after ~20-30 cycles).
+        self._transcribe_count += 1
+        if self._transcribe_count % self._reload_interval == 0:
+            logger.debug(
+                "Reloading model (cycle %d) to prevent memory leak",
+                self._transcribe_count,
             )
-            text = result.get("text", "").strip()
-            logger.info("Transcription: %r", text)
-            return text
+            self._model = None
+            self._model_loaded = False
+            self.load_model()
 
-        except Exception as e:
-            raise TranscriptionError(
-                f"Transcription failed: {e}"
-            ) from e
+        # tiny.en context window is 448 tokens (~60s of speech).
+        # Split into chunks to avoid buffer overflow crashes.
+        chunk_samples = 60 * sample_rate  # 60 seconds
+        texts = []
+
+        for start in range(0, len(audio), chunk_samples):
+            chunk = audio[start : start + chunk_samples]
+            try:
+                self._model.params["language"] = "en"
+                segments = self._model.transcribe(chunk)
+                chunk_text = " ".join(
+                    seg.text.strip()
+                    for seg in segments
+                    if seg.text and seg.text.strip() != "[BLANK_AUDIO]"
+                ).strip()
+                if chunk_text:
+                    texts.append(chunk_text)
+            except Exception as e:
+                raise TranscriptionError(
+                    f"Transcription failed: {e}"
+                ) from e
+
+        if not texts:
+            return ""
+
+        text = " ".join(texts)
+        logger.info("Transcription: %r", text)
+        return text

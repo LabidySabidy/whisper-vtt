@@ -105,6 +105,16 @@ class HotkeyListener:
         self._user32 = ctypes.windll.user32
         self._kernel32 = ctypes.windll.kernel32
 
+        # Declare CallNextHookEx argtypes — on x64, LPARAM/WPARAM are
+        # 8-byte values that overflow ctypes' default c_int (4 bytes).
+        self._user32.CallNextHookEx.argtypes = [
+            wintypes.HHOOK,
+            ctypes.c_int,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        ]
+        self._user32.CallNextHookEx.restype = wintypes.LPARAM
+
     # ── Callback registration ──────────────────────────────────────────
 
     def set_on_activated(self, callback: Callable[[HotkeyEvent], None]) -> None:
@@ -158,23 +168,29 @@ class HotkeyListener:
     def _message_pump(self) -> None:
         """Windows message pump for the hook thread."""
         # Define the hook callback type
+        # Windows LRESULT is LONG_PTR (8 bytes on x64), not LONG (4 bytes).
+        # Using ctypes.c_long on 64-bit causes stack corruption and
+        # SetWindowsHookExW returns NULL.
         HOOKPROC = ctypes.WINFUNCTYPE(
-            ctypes.c_long,
-            ctypes.c_int,
-            wintypes.WPARAM,
-            wintypes.LPARAM,
+            wintypes.LPARAM,  # LRESULT = LONG_PTR
+            ctypes.c_int,     # nCode
+            wintypes.WPARAM,  # wParam
+            wintypes.LPARAM,  # lParam
         )
 
         # Store reference to prevent GC
         self._hook_proc = HOOKPROC(self._low_level_keyboard_proc)
 
         # Install the hook
+        # WH_KEYBOARD_LL requires hMod = NULL (0), not a module handle.
+        # Passing GetModuleHandleW(None) returns non-NULL in PyInstaller
+        # bundles, causing SetWindowsHookExW to fail.
         with self._lock:
             self._hook_id = self._user32.SetWindowsHookExW(
                 WH_KEYBOARD_LL,
                 self._hook_proc,
-                self._kernel32.GetModuleHandleW(None),
-                0,
+                0,  # hMod must be NULL for WH_KEYBOARD_LL
+                0,  # dwThreadId = 0 for global hook
             )
 
         if not self._hook_id:

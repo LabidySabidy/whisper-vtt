@@ -91,6 +91,19 @@ class TestSystemTrayCallbacks:
         assert len(called) == 1
 
 
+class TestShowNotification:
+    def test_notification_no_crash_without_icon(self):
+        """show_notification should not crash when tray icon isn't running."""
+        tray = SystemTray()
+        # No tray_icon set — should be a no-op, not a crash
+        tray.show_notification("Test", "Hello")
+
+    def test_notification_no_sound_no_crash(self):
+        """play_sound=False should not crash even without tray icon."""
+        tray = SystemTray()
+        tray.show_notification("Test", "Hello", play_sound=False)
+
+
 class TestStatusColors:
     def test_all_statuses_have_colors(self):
         for status in AppStatus:

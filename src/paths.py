@@ -33,7 +33,7 @@ class PathResolver:
         return cls.resolve(filename)
 
     @classmethod
-    def model_path(cls, relative: str = "models/tiny.en.pt") -> Path:
+    def model_path(cls, relative: str = "models/ggml-base.en.bin") -> Path:
         """Path to the whisper model file."""
         return cls.resolve(relative)
 

@@ -115,7 +115,7 @@ class TestValidateVolumeThreshold:
 
 class TestValidateModelPath:
     def test_valid(self):
-        assert _validate_model_path("models/base.en.pt") == Path("models/base.en.pt")
+        assert _validate_model_path("models/ggml-base.en.bin") == Path("models/ggml-base.en.bin")
 
     def test_empty_returns_default(self):
         assert _validate_model_path("") == Path(DEFAULT_MODEL_PATH)
@@ -136,7 +136,7 @@ class TestConfigToToml:
             output_mode=OutputMode.CLIPBOARD,
             silence_threshold_ms=3000,
             volume_threshold_db=-10.0,
-            model_path=Path("models/base.en.pt"),
+            model_path=Path("models/ggml-base.en.bin"),
         )
         toml_str = config_to_toml(config)
 
@@ -266,7 +266,7 @@ silence_threshold_ms = 2000
 volume_threshold_db = -20.0
 
 [model]
-path = "models/base.en.pt"
+path = "models/ggml-base.en.bin"
 """
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".toml", delete=False, encoding="utf-8"
@@ -282,7 +282,7 @@ path = "models/base.en.pt"
             assert config.output_mode == OutputMode.CLIPBOARD
             assert config.silence_threshold_ms == 2000
             assert config.volume_threshold_db == -20.0
-            assert config.model_path == Path("models/base.en.pt")
+            assert config.model_path == Path("models/ggml-base.en.bin")
         finally:
             tmp_path.unlink()
 

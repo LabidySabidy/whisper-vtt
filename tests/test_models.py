@@ -117,7 +117,7 @@ class TestAppConfig:
             output_mode=OutputMode.AUTO_PASTE,
             silence_threshold_ms=5000,
             volume_threshold_db=-15.0,
-            model_path="models/tiny.en.pt",
+            model_path="models/ggml-base.en.bin",
         )
         with pytest.raises(Exception):
             config.silence_threshold_ms = 100  # type: ignore[misc]

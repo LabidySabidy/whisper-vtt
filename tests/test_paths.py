@@ -36,11 +36,11 @@ class TestPathResolver:
 
     def test_model_path_default(self):
         result = PathResolver.model_path()
-        assert result == PathResolver.base_path() / "models" / "tiny.en.pt"
+        assert result == PathResolver.base_path() / "models" / "ggml-base.en.bin"
 
     def test_model_path_custom(self):
-        result = PathResolver.model_path("models/base.en.pt")
-        assert result == PathResolver.base_path() / "models" / "base.en.pt"
+        result = PathResolver.model_path("models/ggml-small.en.bin")
+        assert result == PathResolver.base_path() / "models" / "ggml-small.en.bin"
 
     def test_log_path_default(self):
         result = PathResolver.log_path()

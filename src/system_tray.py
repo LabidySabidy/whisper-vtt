@@ -48,13 +48,19 @@ class SystemTray:
         if self._tray_icon is not None:
             self._tray_icon.icon = self._generate_icon(status)
 
-    def show_notification(self, title: str, message: str) -> None:
-        """Show a balloon notification."""
+    def show_notification(self, title: str, message: str, *, play_sound: bool = True) -> None:
+        """Show a balloon notification with an optional system beep."""
         if self._tray_icon is not None:
             try:
                 self._tray_icon.notify(message, title)
             except Exception as e:
                 logger.warning("Failed to show notification: %s", e)
+        if play_sound:
+            try:
+                import winsound
+                winsound.MessageBeep()
+            except Exception as e:
+                logger.debug("System beep failed: %s", e)
 
     def start(self) -> None:
         """Start the system tray on a daemon thread."""

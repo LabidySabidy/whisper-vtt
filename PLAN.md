@@ -1,37 +1,58 @@
-# PLAN.md — Whisper VTT
+# Plan — Model upgrade + banner polish
 
-## Phase 1: Foundation
-Project skeleton, data models, config manager. End-to-end useful: you can load/save/validate TOML config.
+## Goal
+Upgrade from tiny to base model for better accuracy, and fix the startup banner layout: all-orange borders, octopus art, proper column alignment, ANSI-aware widths.
 
-- `pyproject.toml` with dependencies, `requirements.txt`
-- `src/` package structure (`__init__.py`, `__main__.py` stub)
-- `src/models.py` — all enums and dataclasses
-- `src/paths.py` — PathResolver (source vs PyInstaller bundle)
-- `src/config_manager.py` — TOML load/validate/write with defaults
-- `config.toml` — shipped defaults
+## Approach
+Model upgrade is mechanical — change default model path everywhere, download `ggml-base.en.bin`. Banner fix requires rewriting the `_Term.header()` method to handle ANSI escape codes when measuring string widths (strip codes before `len()`), ensuring the center divider aligns properly. Also reorder left-column content (welcome above art) and replace ASCII art with octopus.
 
-## Phase 2: Recording pipeline
-Audio capture, VAD engine, transcription engine. End-to-end useful: record from mic, auto-stop on silence, get text.
+## Phases
 
-- `src/audio_capture.py` — sounddevice InputStream, 16kHz mono, chunk streaming
-- `src/vad_engine.py` — RMS energy detection, silence threshold tracking
-- `src/transcription_engine.py` — openai-whisper model load/inference, CPU-only
+1. **Model upgrade to ggml-base** — download model, update all references, tests
+2. **Banner layout fixes** — ANSI-aware width, orange everywhere, octopus, alignment, right-column no-border
 
-## Phase 3: User interface
-Hotkey listener, output handler, system tray. End-to-end useful: press a key, get text on clipboard.
+## Files that will change
 
-- `src/hotkey_listener.py` — Windows low-level keyboard hook, message pump, toggle/push-to-talk
-- `src/output_handler.py` — win32clipboard, clipboard set, fallback to clip.exe
-- `src/system_tray.py` — pystray icon, colored status circles, exit menu
+| File | Change | Phase |
+|---|---|---|
+| `src/config_manager.py` | `DEFAULT_MODEL_PATH = "models/ggml-base.en.bin"` | 1 |
+| `src/paths.py` | Default model path updated | 1 |
+| `config.toml` | `path = "models/ggml-base.en.bin"` | 1 |
+| `scripts/build.py` | `model_name = "ggml-base.en.bin"` | 1 |
+| `tests/test_config_manager.py` | Update expected model path | 1 |
+| `tests/test_paths.py` | Update expected model path | 1 |
+| `tests/test_models.py` | Update expected model path | 1 |
+| `tests/test_app_controller.py` | Update expected model path | 1 |
+| `src/__main__.py` | `_Term.header()` rewrite: ANSI-aware widths, orange border/title, octopus, welcome-back order | 2 |
 
-## Phase 4: Integration
-App controller wires all components, entry point, state machine. End-to-end useful: full dictation flow.
+## Acceptance criteria
 
-- `src/app_controller.py` — state machine (Idle→Recording→Transcribing→Delivering→Idle), ThreadPoolExecutor, error handling
-- `src/__main__.py` — load config, instantiate controller, start, handle shutdown
+- [ ] `ggml-base.en.bin` model is downloaded and bundled in dist
+- [ ] 168 tests pass with new model path
+- [ ] Banner has orange borders on all sides including top title bar
+- [ ] "Whisper VTT" text in the title is orange
+- [ ] "Welcome back!" appears above the octopus art
+- [ ] Octopus ASCII art replaces old triangular art
+- [ ] Left column text stays within its boundary (no overflow past center divider)
+- [ ] Right column has text properly aligned, no right-side border line
+- [ ] Center divider is evenly spaced between columns
+- [ ] Build succeeds
 
-## Phase 5: Build & distribution
-PyInstaller packaging, model bundling, zip output.
+## Not in scope
 
-- `scripts/build.py` — PyInstaller --onedir, model copy, config copy, zip
-- `scripts/download_model.py` — fetch tiny.en.pt if missing
+- Changing model reload interval
+- Adding more model options to config
+- Hiding "Progress: X%" lines (tried, caused crashes)
+- Changing dictation-cycle console output
+
+## Open questions
+
+None
+
+## Current step
+
+Not started
+
+## Notes
+
+-

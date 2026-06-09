@@ -1,4 +1,4 @@
-"""PyInstaller build script for Whisper VTT."""
+"""PyInstaller build script for Whisper VTT — cross-platform."""
 
 import shutil
 import sys
@@ -15,11 +15,12 @@ def main():
 
     print("=" * 60)
     print("Whisper VTT - PyInstaller Build")
+    print(f"  Platform: {sys.platform}")
     print(f"  Engine: pywhispercpp (whisper.cpp GGML)")
     print(f"  Model:  {model_name}")
     print("=" * 60)
 
-    # Find or download the GGML model
+    # Locate or download the GGML model
     print(f"\nLocating model '{model_name}'...")
     import pywhispercpp.model
 
@@ -40,9 +41,18 @@ def main():
     else:
         print(f"  WARNING: Model not found. Download with: python scripts/download_model.py")
 
+    # Platform-specific icon
+    if sys.platform == "darwin":
+        icon_path = project_root / "whisper_vtt.icns"
+    else:
+        icon_path = project_root / "whisper_vtt.ico"
+    if not icon_path.exists():
+        print(f"  WARNING: Icon not found: {icon_path}")
+
     print("\nRunning PyInstaller...")
     import PyInstaller.__main__
 
+    # Base args shared across platforms
     pyinstaller_args = [
         str(project_root / "src" / "__main__.py"),
         "--onedir",
@@ -51,15 +61,11 @@ def main():
         "--workpath", str(project_root / "build"),
         "--specpath", str(project_root),
         "--noconfirm",
-        f"--icon={project_root / 'whisper_vtt.ico'}",
+        f"--icon={icon_path}",
         "--hidden-import=sounddevice",
         "--hidden-import=_sounddevice_data",
         "--hidden-import=numpy",
-        "--hidden-import=pystray",
         "--hidden-import=PIL",
-        "--hidden-import=win32clipboard",
-        "--hidden-import=win32com",
-        "--hidden-import=win32com.client",
         "--hidden-import=pywhispercpp",
         "--hidden-import=pocketsphinx",
         "--collect-all=pywhispercpp",
@@ -82,8 +88,22 @@ def main():
         "--exclude-module=onnxruntime",
         "--exclude-module=scikit-learn",
         "--exclude-module=openwakeword",
-        "--console",
     ]
+
+    # Platform-specific args
+    if sys.platform == "win32":
+        pyinstaller_args.extend([
+            "--hidden-import=pystray",
+            "--hidden-import=win32clipboard",
+            "--hidden-import=win32com",
+            "--hidden-import=win32com.client",
+            "--console",
+        ])
+    elif sys.platform == "darwin":
+        pyinstaller_args.extend([
+            # rumps handles the menu bar (no pystray on macOS)
+            "--windowed",  # produces .app bundle, no terminal window
+        ])
 
     PyInstaller.__main__.run(pyinstaller_args)
 
@@ -104,6 +124,7 @@ def main():
             print(f"Copying config: {config_src} -> {config_dest}")
             shutil.copy2(config_src, config_dest)
 
+    # Zip the dist folder
     zip_path = project_root / "dist" / "Whisper-VTT.zip"
     print(f"\nCreating zip: {zip_path}")
     if zip_path.exists():

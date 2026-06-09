@@ -1,7 +1,7 @@
 """Tests for SystemTray (icon generation and status logic)."""
 
 from src.models import AppStatus
-from src.system_tray import STATUS_COLORS, SystemTray
+from src.backends import STATUS_COLORS, SystemTray
 
 
 class TestGenerateIcon:

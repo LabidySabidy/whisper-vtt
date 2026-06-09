@@ -12,11 +12,11 @@ import traceback
 from src.app_controller import AppController
 from src.audio_capture import AudioCapture
 from src.config_manager import load_config, RecordingMode
-from src.hotkey_listener import HotkeyListener
+from src.backends import HotkeyListener
 from src.models import AppStatus
-from src.output_handler import OutputHandler
+from src.backends import OutputHandler
 from src.paths import PathResolver
-from src.system_tray import SystemTray
+from src.backends import SystemTray
 from src.transcription_engine import TranscriptionEngine
 from src.vad_engine import VADEngine
 from src.wake_word import WakeWordListener

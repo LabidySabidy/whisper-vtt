@@ -11,10 +11,8 @@ import threading
 
 from src.audio_capture import AudioCapture, AudioCaptureError
 from src.config_manager import AppConfig, RecordingMode
-from src.hotkey_listener import HotkeyListener
+from src.backends import HotkeyListener, OutputHandler, SystemTray
 from src.models import AppStatus, AudioBuffer, HotkeyEvent
-from src.output_handler import OutputHandler
-from src.system_tray import SystemTray
 from src.transcription_engine import TranscriptionEngine, TranscriptionError
 from src.vad_engine import VADEngine
 

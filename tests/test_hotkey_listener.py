@@ -1,10 +1,7 @@
 """Tests for HotkeyListener (logic tests, no Windows hook)."""
 
 
-from src.hotkey_listener import (
-    KEY_NAME_TO_VK,
-    HotkeyListener,
-)
+from src.backends import KEY_NAME_TO_VK, HotkeyListener
 from src.models import HotkeyCombo
 
 

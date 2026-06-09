@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.models import OutputMode
-from src.output_handler import OutputError, OutputHandler
+from src.backends import OutputError, OutputHandler
 
 
 class TestOutputHandlerInit:
